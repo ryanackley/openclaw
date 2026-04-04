@@ -4,26 +4,31 @@ Replicate OpenClaw's memory system using Claude Code hooks, commands, and an MCP
 
 ## How OpenClaw Does It
 
-OpenClaw uses LanceDB to index markdown files directly:
+OpenClaw uses LanceDB + Voyage AI to index markdown files directly:
 1. You write to `memory/YYYY-MM-DD.md` and `MEMORY.md` (plain markdown)
-2. LanceDB chunks and embeds those files into vectors
+2. Voyage AI generates embeddings, LanceDB stores vectors
 3. `memory_search` does semantic search over the indexed files
 4. Results point back to the source file + line numbers
 5. A "dreaming" system auto-promotes frequently-recalled memories to `MEMORY.md`
 
-The key insight: **the files ARE the database.** There's no separate store. LanceDB indexes your markdown, and you search over it.
+The key insight: **the files ARE the database.** There's no separate store.
 
 ## How We Replicate It
 
-### mcp-local-rag (LanceDB-based, same engine as OpenClaw)
+### Primary: voyageai-cli (same embeddings as OpenClaw)
 
-The `.mcp.json` configures `mcp-local-rag` which:
-- Indexes `~/memory/*.md` files using **LanceDB** (same engine as OpenClaw)
-- Provides `search_documents` for semantic search over your files
-- Provides `ingest_data` to re-index after writes
-- Runs locally, no API key needed
+The `.mcp.json` configures `voyageai-cli` which:
+- Indexes `~/memory/*.md` files using **Voyage AI embeddings** (same provider as OpenClaw)
+- Markdown-aware chunking (preserves heading structure)
+- Provides `search_vectors` for semantic search
+- Requires a Voyage AI API key (you already have one from OpenClaw)
 
-**You write markdown files. The MCP server indexes them. You search semantically. Same architecture as OpenClaw.**
+### Fallback: mcp-local-rag (local, no API key)
+
+If you prefer local-only operation:
+- Uses LanceDB with local embeddings (`all-MiniLM-L6-v2`)
+- Lower quality than Voyage AI but zero-cost and offline
+- Swap by disabling `memory` and enabling `memory-local` in `.mcp.json`
 
 ### File layout
 
@@ -33,15 +38,15 @@ The `.mcp.json` configures `mcp-local-rag` which:
 └── memory/
     ├── 2026-04-01.md      ← daily session notes
     ├── 2026-04-02.md
-    └── 2026-04-03.md      ← mcp-local-rag indexes all of these
+    └── 2026-04-03.md      ← MCP server indexes all of these
 ```
 
 ### Data flow
 
 ```
-Write memory → ~/memory/YYYY-MM-DD.md → mcp-local-rag indexes it → search_documents finds it
-                                                                      ↑
-                  ~/MEMORY.md (curated) ──────────────────────────────┘
+Write memory → ~/memory/YYYY-MM-DD.md → MCP server indexes it → search_vectors finds it
+                                                                    ↑
+                  ~/MEMORY.md (curated) ────────────────────────────┘
 ```
 
 No dual-write. No separate database. Write the file, index it, search it.
@@ -54,17 +59,22 @@ Run `./install.sh` for one-command setup, or manually:
 
 ```bash
 cp .mcp.json ~/.claude/.mcp.json
+# Edit ~/.claude/.mcp.json and set your VOYAGE_API_KEY
 ```
 
-The MCP server starts automatically when Claude Code launches and indexes `~/memory/`.
+### 2. Initialize the Voyage AI index
 
-### 2. Install personality + memory instructions
+```bash
+npx voyageai-cli pipeline ~/memory/*.md --db memory --collection notes --create-index
+```
+
+### 3. Install personality + memory instructions
 
 ```bash
 cp CLAUDE.md ~/.claude/CLAUDE.md
 ```
 
-### 3. Install commands
+### 4. Install commands
 
 ```bash
 mkdir -p ~/.claude/commands
@@ -74,7 +84,7 @@ cp commands/memory-promote.md ~/.claude/commands/
 cp commands/memory-search.md ~/.claude/commands/
 ```
 
-### 4. Install SessionStart hook
+### 5. Install SessionStart hook
 
 ```bash
 cp settings.json ~/.claude/settings.json
@@ -82,33 +92,31 @@ cp settings.json ~/.claude/settings.json
 
 The hook loads `~/MEMORY.md` and recent daily files at session start.
 
-## Alternative MCP Servers
+## MCP Server Options
 
-If `mcp-local-rag` doesn't work for you:
-
-| Server | Engine | Approach |
-|--------|--------|----------|
-| `mcp-local-rag` (default) | LanceDB | Indexes files directly, semantic + keyword search |
-| `@lishenxydlgzs/simple-files-vectorstore` | Built-in | Watches directories, auto-reindexes on file changes |
-| `mcp-server-lancedb` | LanceDB | Lower-level LanceDB access |
-| `@modelcontextprotocol/server-memory` | Knowledge graph | Separate store (not file-based), simpler but less like OpenClaw |
+| Server | Embeddings | Setup | Quality |
+|--------|-----------|-------|---------|
+| `voyageai-cli` (default) | Voyage AI (remote) | API key needed | Best (same as OpenClaw) |
+| `mcp-local-rag` (fallback) | all-MiniLM-L6-v2 (local) | Zero config | Good |
+| `@lishenxydlgzs/simple-files-vectorstore` | Built-in (local) | Auto-watches dirs | Good |
 
 ## OpenClaw Feature Comparison
 
 | OpenClaw Feature | Claude Code Implementation |
 |-----------------|---------------------------|
-| LanceDB vector search | mcp-local-rag (same LanceDB engine) |
-| Files = database | Same — mcp-local-rag indexes your markdown files directly |
+| Voyage AI embeddings | voyageai-cli MCP server (same provider) |
+| LanceDB vector search | voyageai-cli or mcp-local-rag |
+| Files = database | Same — MCP server indexes your markdown files directly |
 | Session startup memory load | SessionStart hook reads ~/MEMORY.md + recent daily files |
 | Daily memory files | `~/memory/YYYY-MM-DD.md` (same format) |
 | Long-term MEMORY.md | `~/MEMORY.md` (same concept) |
-| `memory_search` tool | `search_documents` via MCP + grep fallback |
+| `memory_search` tool | `search_vectors` (Voyage) or `search_documents` (local) + grep fallback |
 | Dreaming (auto-promotion) | `/user:memory-promote` (manual, no 3 AM cron) |
 | "Remember this" | CLAUDE.md instructions + `/user:remember` |
 
 ## What's NOT Replicated
 
 - **Automatic dreaming** — OpenClaw auto-promotes at 3 AM. Use `/user:memory-promote` manually.
-- **Recall tracking** — OpenClaw logs every search hit with scores, frequency, concept tags. The MCP server doesn't track recall history.
+- **Recall tracking** — OpenClaw logs every search hit with scores, frequency, concept tags.
 - **Promotion scoring** — OpenClaw uses a weighted algorithm (frequency, relevance, diversity, recency). We rely on the LLM's judgment during `/user:memory-promote`.
 - **Multi-agent isolation** — Not applicable to Claude Code.

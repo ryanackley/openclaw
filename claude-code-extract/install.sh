@@ -32,7 +32,7 @@ if [ -f "$CLAUDE_DIR/.mcp.json" ]; then
   cp "$CLAUDE_DIR/.mcp.json" "$CLAUDE_DIR/.mcp.json.bak"
 fi
 cp "$SCRIPT_DIR/.mcp.json" "$CLAUDE_DIR/.mcp.json"
-echo "  Installed ~/.claude/.mcp.json (mem0 memory + MCP servers)"
+echo "  Installed ~/.claude/.mcp.json (Voyage AI memory + MCP servers)"
 
 # 5. Install user-level settings (SessionStart hook)
 if [ -f "$CLAUDE_DIR/settings.json" ]; then
@@ -75,7 +75,21 @@ MEMEOF
   echo "  Created ~/MEMORY.md (long-term memory)"
 fi
 
+# 9. Prompt for Voyage AI setup
 echo ""
+echo "━━━ Voyage AI Setup ━━━"
+echo ""
+echo "The memory MCP server uses Voyage AI for embeddings (same as OpenClaw)."
+echo "Edit ~/.claude/.mcp.json and replace <your-voyage-api-key> with your key."
+echo ""
+echo "Then initialize the index:"
+echo "  npx voyageai-cli pipeline ~/memory/*.md --db memory --collection notes --create-index"
+echo ""
+echo "If you prefer local-only embeddings (no API key), edit ~/.claude/.mcp.json:"
+echo "  - Disable the 'memory' server"
+echo "  - Enable the 'memory-local' server"
+echo ""
+
 echo "Done! Your Claude Code CLI now has:"
 echo "  - OpenClaw-style personality (anti-sycophancy, opinions, resourcefulness)"
 echo "  - Two-tier memory system (daily files + semantic search via MCP)"

@@ -2,11 +2,20 @@
   "mcpServers": {
     "memory": {
       "command": "npx",
+      "args": ["-y", "voyageai-cli", "mcp-server"],
+      "env": {
+        "VOYAGE_API_KEY": "<your-voyage-api-key>"
+      },
+      "_comment": "Indexes ~/memory/*.md with Voyage AI embeddings (markdown-aware chunking). Run 'npx voyageai-cli pipeline ~/memory/*.md --db memory --collection notes --create-index' to initialize. Tools: search_vectors, embed_text, retrieve_documents."
+    },
+    "memory-local": {
+      "command": "npx",
       "args": ["-y", "mcp-local-rag"],
       "env": {
         "BASE_DIR": "${HOME}/memory"
       },
-      "_comment": "Indexes ~/memory/*.md files with LanceDB (same engine as OpenClaw). Provides semantic search via search_documents tool. No API key needed."
+      "disabled": true,
+      "_comment": "Fallback: local-only LanceDB embeddings (no API key needed). Enable this and disable 'memory' above if you don't want Voyage AI."
     },
     "github": {
       "command": "npx",

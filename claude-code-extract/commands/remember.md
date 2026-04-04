@@ -35,8 +35,10 @@ If the file already exists, append to the appropriate section. Don't overwrite e
 
 If the user said "remember this" or "note this", capture exactly what they want remembered. If no specific content was given, capture the most important context from the current conversation.
 
-5. **Re-index** — If the `memory` MCP server is connected, call `ingest_data` to re-index `~/memory/` so the new content is immediately searchable via semantic search.
+5. **Re-index** — If the `memory` MCP server is connected, re-index so the new content is searchable:
+   - **voyageai-cli**: The pipeline auto-indexes on next search, or call the relevant ingest tool.
+   - **mcp-local-rag**: Call `ingest_data` to re-index `~/memory/`.
 
-The MCP server (mcp-local-rag) indexes the markdown files directly — writing the file IS writing to the vector store. The re-index step just ensures it picks up the new content promptly.
+The MCP server indexes the markdown files directly — writing the file IS writing to the vector store.
 
 Confirm what was saved and where.
