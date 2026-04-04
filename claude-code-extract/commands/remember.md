@@ -4,13 +4,13 @@ Save something to today's daily memory file.
 
 ## Instructions
 
-1. Create `memory/` directory if it doesn't exist.
+1. Create `~/memory/` directory if it doesn't exist.
 
 2. Determine today's date in `YYYY-MM-DD` format.
 
-3. Read `memory/YYYY-MM-DD.md` if it exists (to append, not overwrite).
+3. Read `~/memory/YYYY-MM-DD.md` if it exists (to append, not overwrite).
 
-4. Write the user's message or current context to `memory/YYYY-MM-DD.md`.
+4. Write the user's message or current context to `~/memory/YYYY-MM-DD.md`.
 
 Use this format:
 

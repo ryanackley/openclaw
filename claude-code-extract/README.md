@@ -2,19 +2,41 @@
 
 Extracted personality, skills, and tooling from the [OpenClaw](https://github.com/openclaw/openclaw) project for use with vanilla Claude Code CLI.
 
-## Quick Start
+## Quick Start (Device-Wide Install)
 
 ```bash
-# 1. Copy the CLAUDE.md to your project root (personality + coding style)
+# One-command install — sets up everything at ~/.claude/ (applies to ALL projects)
+./install.sh
+```
+
+Or manually:
+
+```bash
+# Personality + memory instructions (device-wide)
+cp CLAUDE.md ~/.claude/CLAUDE.md
+cp SOUL.md ~/.claude/SOUL.md
+
+# MCP servers (mem0 for semantic memory)
+cp .mcp.json ~/.claude/.mcp.json
+
+# Settings (SessionStart hook for memory loading)
+cp settings.json ~/.claude/settings.json
+
+# Commands (available as /user:command-name everywhere)
+mkdir -p ~/.claude/commands
+cp commands/* ~/.claude/commands/
+
+# Memory storage
+mkdir -p ~/memory
+```
+
+### Per-Project Install (alternative)
+
+If you prefer project-scoped config, copy files to your project root instead:
+
+```bash
 cp CLAUDE.md ~/your-project/CLAUDE.md
-
-# 2. Optionally copy SOUL.md for the full personality system
-cp SOUL.md ~/your-project/SOUL.md
-
-# 3. Copy the MCP config for tool integrations
 cp .mcp.json ~/your-project/.mcp.json
-
-# 4. Copy skills you want as custom commands
 mkdir -p ~/your-project/.claude/commands
 cp commands/* ~/your-project/.claude/commands/
 ```
@@ -56,15 +78,17 @@ Pre-configured MCP servers for common tools. Edit to match your setup.
 ### 4. `commands/` — Custom Slash Commands (Skills)
 
 OpenClaw "skills" translated into Claude Code custom commands:
-- `/project:weather` — Weather lookups via wttr.in
-- `/project:github` — GitHub CLI operations
-- `/project:obsidian` — Obsidian vault management
-- `/project:remember` — Save context to daily memory
-- `/project:memory-review` — Review and maintain memory files
-- `/project:memory-promote` — Promote daily insights to long-term memory
-- `/project:memory-search` — Search across all memory files
-- `/project:molty` — Rewrite your personality to be less generic
-- `/project:create-skill` — Create new custom commands
+- `/user:weather` — Weather lookups via wttr.in
+- `/user:github` — GitHub CLI operations
+- `/user:obsidian` — Obsidian vault management
+- `/user:remember` — Save context to daily memory
+- `/user:memory-review` — Review and maintain memory files
+- `/user:memory-promote` — Promote daily insights to long-term memory
+- `/user:memory-search` — Search across all memory files
+- `/user:molty` — Rewrite your personality to be less generic
+- `/user:create-skill` — Create new custom commands
+
+(Commands installed at `~/.claude/commands/` are invoked with `/user:` prefix; project-level commands use `/project:`.)
 
 ### 6. `MEMORY-SYSTEM.md` — Memory Architecture Guide
 
@@ -112,6 +136,41 @@ OpenClaw ships 53 skills. The ones most useful for Claude Code:
 
 To port a skill, read its `SKILL.md` from the OpenClaw repo at
 `skills/<name>/SKILL.md` and adapt it as a Claude Code custom command.
+
+## Device-Wide Architecture
+
+```
+~/.claude/
+├── CLAUDE.md              ← personality + memory instructions (loaded in ALL projects)
+├── SOUL.md                ← customizable personality
+├── .mcp.json              ← mem0 MCP server (semantic memory)
+├── settings.json          ← SessionStart hook (auto-loads memory)
+└── commands/              ← global commands (invoked as /user:name)
+    ├── remember.md
+    ├── memory-search.md
+    ├── memory-promote.md
+    ├── memory-review.md
+    ├── weather.md
+    ├── github.md
+    ├── obsidian.md
+    ├── molty.md
+    └── create-skill.md
+
+~/
+├── MEMORY.md              ← long-term curated memory
+└── memory/
+    ├── 2026-04-01.md      ← daily notes
+    ├── 2026-04-02.md
+    └── 2026-04-03.md
+```
+
+Every time you run `claude` in any directory, it:
+1. Loads `~/.claude/CLAUDE.md` (personality + memory instructions)
+2. Fires the SessionStart hook (injects recent memory context)
+3. Has access to all `/user:` commands
+4. Can read/write `~/memory/` and `~/MEMORY.md` from anywhere
+
+This is the same "persistent assistant across your device" pattern OpenClaw uses.
 
 ## The OpenClaw Personality Philosophy
 

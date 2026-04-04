@@ -6,9 +6,9 @@ This replicates OpenClaw's "dreaming" system — where frequently recalled, high
 
 ## Instructions
 
-1. **Read MEMORY.md** (or create it if it doesn't exist with a `# Long-Term Memory` header).
+1. **Read `~/MEMORY.md`** (or create it if it doesn't exist with a `# Long-Term Memory` header).
 
-2. **Read recent daily files** — Scan `memory/` for the last 7 days of `YYYY-MM-DD.md` files.
+2. **Read recent daily files** — Scan `~/memory/` for the last 7 days of `YYYY-MM-DD.md` files.
 
 3. **Identify promotion candidates** — Look for entries that are:
    - Decisions that affect future work
@@ -23,7 +23,7 @@ This replicates OpenClaw's "dreaming" system — where frequently recalled, high
    - Stale or no longer relevant
    - One-off context with no future value
 
-5. **Append to MEMORY.md** under a promotion section:
+5. **Append to `~/MEMORY.md`** under a promotion section:
 
 ```markdown
 ## Promoted (YYYY-MM-DD)

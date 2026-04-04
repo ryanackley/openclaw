@@ -1,22 +1,22 @@
 # Memory Review
 
-Review and maintain the project's memory files, inspired by OpenClaw's memory system.
+Review and maintain your device-wide memory files, inspired by OpenClaw's memory system.
 
 ## Instructions
 
-1. **Check for memory directory** — Look for `memory/` in the project root. Create it if missing.
+1. **Check for memory directory** — Look for `~/memory/`. Create it if missing.
 
-2. **Review today's notes** — Read `memory/YYYY-MM-DD.md` (today's date). If it doesn't exist, create it with any notable context from this session.
+2. **Review today's notes** — Read `~/memory/YYYY-MM-DD.md` (today's date). If it doesn't exist, create it with any notable context from this session.
 
 3. **Review yesterday's notes** — Read yesterday's file if it exists for recent context.
 
-4. **Update long-term memory** — If `MEMORY.md` exists in the project root:
+4. **Update long-term memory** — If `~/MEMORY.md` exists:
    - Read through recent daily files
    - Identify significant decisions, lessons, or insights worth keeping
    - Update MEMORY.md with distilled learnings
    - Remove outdated info that's no longer relevant
 
-5. **Write today's entry** — Add to today's `memory/YYYY-MM-DD.md`:
+5. **Write today's entry** — Add to today's `~/memory/YYYY-MM-DD.md`:
    - Decisions made
    - Important context
    - Things to remember for next session

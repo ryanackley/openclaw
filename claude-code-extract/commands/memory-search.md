@@ -14,9 +14,9 @@ Use the MCP memory tools to search semantically. This provides vector-based simi
 
 ### File-based search (fallback):
 
-1. **Search long-term memory first** — Read `MEMORY.md` and check for relevant content.
+1. **Search long-term memory first** — Read `~/MEMORY.md` and check for relevant content.
 
-2. **Search daily files** — Search across all `memory/*.md` files for the query terms using grep.
+2. **Search daily files** — Search across all `~/memory/*.md` files for the query terms using grep.
 
 3. **Read matching files** — For each match, read the surrounding context (not just the matching line).
 
