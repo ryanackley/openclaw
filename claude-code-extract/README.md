@@ -59,6 +59,16 @@ OpenClaw "skills" translated into Claude Code custom commands:
 - `/project:weather` — Weather lookups via wttr.in
 - `/project:github` — GitHub CLI operations
 - `/project:obsidian` — Obsidian vault management
+- `/project:remember` — Save context to daily memory
+- `/project:memory-review` — Review and maintain memory files
+- `/project:memory-promote` — Promote daily insights to long-term memory
+- `/project:memory-search` — Search across all memory files
+- `/project:molty` — Rewrite your personality to be less generic
+- `/project:create-skill` — Create new custom commands
+
+### 6. `MEMORY-SYSTEM.md` — Memory Architecture Guide
+
+Full guide to replicating OpenClaw's two-tier memory system with hooks and commands.
 
 ### 5. `settings.json` — Claude Code Settings
 
@@ -73,9 +83,9 @@ Recommended Claude Code settings inspired by OpenClaw's defaults.
 | `IDENTITY.md` | Personality section in CLAUDE.md |
 | Skills (`SKILL.md`) | Custom commands (`.claude/commands/`) |
 | MCP servers | `.mcp.json` |
-| Heartbeats | Not available (no background polling) |
-| Cron jobs | Not available |
-| Memory system | Manual file-based (memory/ directory) |
+| Heartbeats | SessionStart hook + manual commands |
+| Cron jobs | Not available (use `/project:memory-review` manually) |
+| Memory system | File-based with hooks + commands (see MEMORY-SYSTEM.md) |
 | Channel routing | Not applicable |
 | Hooks | Claude Code hooks in settings |
 

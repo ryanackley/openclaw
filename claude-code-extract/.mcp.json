@@ -1,16 +1,18 @@
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"],
-      "disabled": true,
-      "_comment": "Enable and adjust path for filesystem MCP access"
-    },
     "memory": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "args": ["-y", "mem0-mcp"],
+      "env": {
+        "MEM0_DIR": "${HOME}/.openclaw-memory"
+      },
+      "_comment": "OpenMemory — local-first semantic memory with vector search. Closest to OpenClaw's memory system. No API key needed."
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}"],
       "disabled": true,
-      "_comment": "Persistent memory via knowledge graph - enable for OpenClaw-style memory"
+      "_comment": "Enable and adjust path for filesystem MCP access"
     },
     "github": {
       "command": "npx",
@@ -19,7 +21,7 @@
         "GITHUB_PERSONAL_ACCESS_TOKEN": "<your-token>"
       },
       "disabled": true,
-      "_comment": "GitHub API access - alternative to gh CLI skill"
+      "_comment": "GitHub API access — alternative to gh CLI skill"
     },
     "brave-search": {
       "command": "npx",
@@ -28,13 +30,13 @@
         "BRAVE_API_KEY": "<your-key>"
       },
       "disabled": true,
-      "_comment": "Web search via Brave - like OpenClaw's web_search tool"
+      "_comment": "Web search via Brave — like OpenClaw's web_search tool"
     },
     "fetch": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-fetch"],
       "disabled": true,
-      "_comment": "URL fetching - like OpenClaw's web_fetch tool"
+      "_comment": "URL fetching — like OpenClaw's web_fetch tool"
     }
   }
 }
