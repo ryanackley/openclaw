@@ -1,0 +1,26 @@
+{
+  "$schema": "https://claude.ai/settings-schema.json",
+  "_comment": "Recommended Claude Code settings inspired by OpenClaw defaults. Copy to ~/.claude/settings.json or .claude/settings.json in your project.",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Committing changes...'"
+          }
+        ]
+      }
+    ]
+  }
+}
