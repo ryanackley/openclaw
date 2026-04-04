@@ -92,6 +92,12 @@ Don't ask permission. Just read them.
 
 This is curated wisdom, not raw logs. Periodically review daily files and promote the important stuff here. Remove outdated entries.
 
+### Searching Memory
+
+If the `memory` MCP server is connected, use `search_documents` for semantic search across your memory files. It indexes `~/memory/` with LanceDB — same engine as OpenClaw.
+
+Fall back to grep if the MCP server isn't available.
+
 ### Memory Rules
 
 - Memory lives at `~/memory/` (global, not per-project)

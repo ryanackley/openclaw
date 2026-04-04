@@ -4,28 +4,27 @@ Search across all memory for relevant context.
 
 ## Instructions
 
-### If the `memory` MCP server is available (preferred — semantic search):
+### If the `memory` MCP server is available (preferred):
 
-Use the MCP memory tools to search semantically. This provides vector-based similarity search, like OpenClaw's LanceDB system.
+The MCP server (mcp-local-rag) indexes your `~/memory/*.md` files directly using LanceDB — the same engine OpenClaw uses. It provides semantic search over your actual files.
 
-1. Use the MCP `search_memory` (or equivalent) tool with the user's query.
-2. Present results with source attribution and relevance.
-3. If MCP results are sparse, fall back to file-based search below.
+1. Use the `search_documents` tool with the user's query.
+2. Results include the source file path and matched content.
+3. Read the source file for surrounding context if needed.
+4. Also read `~/MEMORY.md` directly — it contains curated long-term memory that may be relevant.
 
-### File-based search (fallback):
+### Fallback (no MCP server):
 
-1. **Search long-term memory first** — Read `~/MEMORY.md` and check for relevant content.
+1. **Read `~/MEMORY.md`** — check for relevant content.
+2. **Grep daily files** — search `~/memory/*.md` for query terms.
+3. **Read matching files** — get surrounding context, not just matching lines.
 
-2. **Search daily files** — Search across all `~/memory/*.md` files for the query terms using grep.
+### Synthesize results
 
-3. **Read matching files** — For each match, read the surrounding context (not just the matching line).
-
-4. **Synthesize results** — Present findings organized by relevance:
-   - Most relevant matches first
-   - Include the source file and approximate date
-   - Quote the relevant passages
-
-5. **If nothing found** — Say so clearly. Don't fabricate memories.
+- Most relevant matches first
+- Include source file and date
+- Quote the relevant passages
+- If nothing found, say so. Don't fabricate memories.
 
 ## Usage
 
@@ -34,5 +33,3 @@ When the user asks:
 - "Do you remember when we discussed Y?"
 - "What's the context on Z?"
 - "Search my notes for..."
-
-Search both MCP memory and file-based memory, then synthesize the answer.

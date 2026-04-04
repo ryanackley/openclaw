@@ -2,17 +2,11 @@
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": ["-y", "mem0-mcp"],
+      "args": ["-y", "mcp-local-rag"],
       "env": {
-        "MEM0_DIR": "${HOME}/.openclaw-memory"
+        "BASE_DIR": "${HOME}/memory"
       },
-      "_comment": "OpenMemory — local-first semantic memory with vector search. Closest to OpenClaw's memory system. No API key needed."
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}"],
-      "disabled": true,
-      "_comment": "Enable and adjust path for filesystem MCP access"
+      "_comment": "Indexes ~/memory/*.md files with LanceDB (same engine as OpenClaw). Provides semantic search via search_documents tool. No API key needed."
     },
     "github": {
       "command": "npx",
@@ -21,7 +15,7 @@
         "GITHUB_PERSONAL_ACCESS_TOKEN": "<your-token>"
       },
       "disabled": true,
-      "_comment": "GitHub API access — alternative to gh CLI skill"
+      "_comment": "GitHub API access — alternative to gh CLI"
     },
     "brave-search": {
       "command": "npx",
@@ -30,13 +24,13 @@
         "BRAVE_API_KEY": "<your-key>"
       },
       "disabled": true,
-      "_comment": "Web search via Brave — like OpenClaw's web_search tool"
+      "_comment": "Web search via Brave"
     },
     "fetch": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-fetch"],
       "disabled": true,
-      "_comment": "URL fetching — like OpenClaw's web_fetch tool"
+      "_comment": "URL fetching"
     }
   }
 }
