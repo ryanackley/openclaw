@@ -166,6 +166,11 @@
       color: var(--error);
     }
 
+    .tool-event.compaction {
+      border-left-color: #d2a8ff;
+      color: #d2a8ff;
+    }
+
     /* --- Streaming indicator --- */
     .streaming .message-body::after {
       content: '';
@@ -339,6 +344,10 @@
 
         case 'tool_result':
           addToolEvent(`Tool result received`, 'result');
+          break;
+
+        case 'compaction':
+          addToolEvent('Context compacted — memories flushed to disk', 'compaction');
           break;
 
         case 'error':

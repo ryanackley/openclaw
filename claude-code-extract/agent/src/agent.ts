@@ -1,5 +1,11 @@
 /**
  * Agent loop — wraps the Claude Agent SDK with our system prompt, tools, and safety hooks.
+ *
+ * Includes:
+ *   - Safety guardrails (PreToolUse)
+ *   - Transcript logging (every message to JSONL)
+ *   - Memory flush on context compaction (PreCompact hook)
+ *   - Session persistence (resume across messages)
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -7,9 +13,23 @@ import type {
   ClaudeAgentOptions,
   HookCallback,
   PreToolUseHookInput,
+  PreCompactHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { checkToolSafety } from "./safety.js";
+import {
+  logUserMessage,
+  logAssistantMessage,
+  logToolUse,
+  logToolResult,
+  logSystemEvent,
+} from "./transcript.js";
+import {
+  shouldFlush,
+  buildFlushPrompt,
+  markFlushed,
+  ensureMemoryDir,
+} from "./memory-flush.js";
 
 // ---------------------------------------------------------------------------
 // Safety hook — runs before every tool call
@@ -37,6 +57,34 @@ const safetyGuardrail: HookCallback = async (input) => {
 };
 
 // ---------------------------------------------------------------------------
+// Pre-compaction hook — flush memories before context gets summarized
+// ---------------------------------------------------------------------------
+
+const preCompactFlush: HookCallback = async (input) => {
+  const compactInput = input as PreCompactHookInput;
+  console.log(
+    `[memory] Context compaction triggered (${compactInput.trigger}), checking for memory flush...`,
+  );
+
+  const { needed, transcript } = await shouldFlush();
+  if (needed && transcript) {
+    console.log("[memory] Flushing conversation memories to disk...");
+    markFlushed();
+    await logSystemEvent("Memory flush triggered by context compaction");
+
+    // Return a system message that tells the agent to flush memories
+    // The agent will use its tools to write the memory file
+    return {
+      hookSpecificOutput: {
+        systemMessage: buildFlushPrompt(transcript),
+      },
+    };
+  }
+
+  return {};
+};
+
+// ---------------------------------------------------------------------------
 // Session state
 // ---------------------------------------------------------------------------
 
@@ -48,9 +96,11 @@ interface SessionState {
 let sessionState: SessionState | null = null;
 
 export async function initSession(): Promise<void> {
+  await ensureMemoryDir();
   const systemPrompt = await buildSystemPrompt();
   sessionState = { systemPrompt };
   console.log("[agent] System prompt built (%d chars)", systemPrompt.length);
+  await logSystemEvent("Session initialized");
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +111,7 @@ export interface StreamCallback {
   onText: (text: string) => void;
   onToolUse: (name: string, id: string) => void;
   onToolResult: (id: string, result: string) => void;
+  onCompaction: () => void;
   onComplete: (fullText: string) => void;
   onError: (error: string) => void;
 }
@@ -76,6 +127,9 @@ export async function sendMessage(
   if (!sessionState) {
     await initSession();
   }
+
+  // Log user message to transcript
+  await logUserMessage(userMessage);
 
   const options: ClaudeAgentOptions = {
     systemPrompt: sessionState!.systemPrompt,
@@ -100,6 +154,7 @@ export async function sendMessage(
           hooks: [safetyGuardrail],
         },
       ],
+      PreCompact: [{ hooks: [preCompactFlush] }],
     },
     ...(sessionState!.sessionId && { resume: sessionState!.sessionId }),
   };
@@ -113,26 +168,35 @@ export async function sendMessage(
     })) {
       switch (message.type) {
         case "assistant": {
-          // Accumulate text from assistant messages
           const text = extractText(message);
           if (text) {
             fullText += text;
             callbacks.onText(text);
           }
 
-          // Report tool calls
           const toolCalls = extractToolCalls(message);
           for (const tc of toolCalls) {
             callbacks.onToolUse(tc.name, tc.id);
+            await logToolUse(tc.name, tc.id);
           }
           break;
         }
 
         case "user": {
-          // Tool results coming back
           const results = extractToolResults(message);
           for (const r of results) {
             callbacks.onToolResult(r.id, r.summary);
+            await logToolResult(r.id, r.summary);
+          }
+          break;
+        }
+
+        case "system": {
+          // Detect compaction boundary
+          const subtype = (message as Record<string, unknown>).subtype;
+          if (subtype === "compact_boundary") {
+            callbacks.onCompaction();
+            await logSystemEvent("Context compacted");
           }
           break;
         }
@@ -143,13 +207,18 @@ export async function sendMessage(
           }
           if (message.subtype === "error") {
             callbacks.onError(
-              (message as Record<string, unknown>).error_message as string ??
+              ((message as Record<string, unknown>).error_message as string) ??
                 "Agent error",
             );
           }
           break;
         }
       }
+    }
+
+    // Log the full assistant response
+    if (fullText) {
+      await logAssistantMessage(fullText);
     }
 
     callbacks.onComplete(fullText);
@@ -160,11 +229,28 @@ export async function sendMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Graceful shutdown — flush memories if needed
+// ---------------------------------------------------------------------------
+
+export async function flushOnShutdown(): Promise<void> {
+  const { needed, transcript } = await shouldFlush();
+  if (needed && transcript) {
+    console.log("[memory] Flushing memories before shutdown...");
+    markFlushed();
+    await logSystemEvent("Memory flush triggered by shutdown");
+    // In a real implementation, we'd run a final agent turn here.
+    // For now, log the transcript summary as a system event.
+    await logSystemEvent(
+      "Unflushed transcript available at ~/memory/transcripts/",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Message extraction helpers
 // ---------------------------------------------------------------------------
 
 function extractText(message: Record<string, unknown>): string {
-  // AssistantMessage may have content array or direct text
   if (typeof message.text === "string") return message.text;
   if (Array.isArray(message.content)) {
     return message.content

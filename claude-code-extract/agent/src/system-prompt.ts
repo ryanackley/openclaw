@@ -79,7 +79,23 @@ function buildContinuity(): string {
 
 Each session, you start fresh. Your memory files ARE your persistence layer.
 Read them. Update them. They're how you maintain continuity across sessions.
-If something important happened, write it down before the session ends.`;
+If something important happened, write it down before the session ends.
+
+Your conversations are automatically logged to ~/memory/transcripts/YYYY-MM-DD.jsonl.
+Before context compaction, you'll be asked to flush important memories to ~/memory/YYYY-MM-DD.md.
+This is how your daily memory files get built — from real conversation transcripts.`;
+}
+
+function buildCompactionGuidance(): string {
+  return `## Summary Instructions
+
+When summarizing this conversation (during context compaction), always preserve:
+- The current task objective and acceptance criteria
+- File paths that have been read or modified
+- Decisions made and the reasoning behind them
+- Any "remember this" notes from the user
+- Technical discoveries, bugs found, solutions that worked
+- User preferences learned during this session`;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +189,7 @@ export async function buildSystemPrompt(): Promise<string> {
     buildMemoryGuidance(),
     buildDateTime(),
     buildContinuity(),
+    buildCompactionGuidance(),
     persona,
     memory,
     recentMemory,

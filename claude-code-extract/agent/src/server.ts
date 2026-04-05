@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { sendMessage, initSession } from "./agent.js";
+import { sendMessage, initSession, flushOnShutdown } from "./agent.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(__dirname, "..", "public");
@@ -110,6 +110,9 @@ wss.on("connection", (ws) => {
         onToolResult(toolId, result) {
           send(ws, "tool_result", { id: messageId, toolId, result });
         },
+        onCompaction() {
+          send(ws, "compaction", { id: messageId });
+        },
         onComplete(fullText) {
           send(ws, "chat_end", { id: messageId, text: fullText });
         },
@@ -131,6 +134,15 @@ wss.on("connection", (ws) => {
 
 export async function startServer(port: number = 3000): Promise<void> {
   await initSession();
+
+  // Graceful shutdown — flush memories before exit
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, async () => {
+      console.log(`\n[server] ${signal} received, flushing memories...`);
+      await flushOnShutdown();
+      process.exit(0);
+    });
+  }
 
   httpServer.listen(port, () => {
     console.log(`\n  OpenClaw Agent running at http://localhost:${port}\n`);
