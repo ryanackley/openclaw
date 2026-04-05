@@ -8,7 +8,7 @@
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { searchMemory, syncEmbeddings } from "./vector-search.js";
 import { recordRecalls } from "./recall-tracker.js";
-import { dream } from "./dreaming.js";
+import { dream, curateOnly } from "./dreaming.js";
 
 // ---------------------------------------------------------------------------
 // memory_search — semantic search with recall tracking
@@ -139,7 +139,12 @@ Ranking uses a weighted algorithm:
 Candidates must have been recalled 3+ times, with avg score >= 0.75,
 from 2+ unique queries, and not already promoted.
 
-This runs automatically every 6 hours, but you can trigger it manually.`,
+This runs automatically every 6 hours, but you can trigger it manually.
+
+After ranking, if ANTHROPIC_API_KEY is set, an LLM curation pass rewrites
+MEMORY.md — deduplicating, consolidating, removing stale entries, and
+organizing by topic. A backup is saved to MEMORY.md.bak before rewriting.
+Without the API key, new entries are appended raw.`,
   {},
   async () => {
     try {
@@ -167,12 +172,17 @@ This runs automatically every 6 hours, but you can trigger it manually.`,
         )
         .join("\n");
 
+      const method = result.curated
+        ? "MEMORY.md was curated and rewritten by LLM (backup at MEMORY.md.bak)"
+        : "Entries appended raw (set ANTHROPIC_API_KEY for LLM curation)";
+
       return {
         content: [
           {
             type: "text" as const,
             text:
               `Promoted ${result.promoted} memories to ~/MEMORY.md:\n\n${promoted}\n\n` +
+              `${method}\n\n` +
               `${result.candidates} unpromoted entries remain in the recall store.`,
           },
         ],
@@ -188,11 +198,68 @@ This runs automatically every 6 hours, but you can trigger it manually.`,
 );
 
 // ---------------------------------------------------------------------------
+// memory_curate — reorganize MEMORY.md without adding new entries
+// ---------------------------------------------------------------------------
+
+const memoryCurate = tool(
+  "curate",
+  `Curate ~/MEMORY.md — reorganize, deduplicate, remove stale entries, and
+consolidate related memories. Does NOT promote new entries; just cleans up
+what's already there.
+
+Uses Claude (via ANTHROPIC_API_KEY) to intelligently rewrite the file:
+- Groups entries by topic, not by promotion date
+- Merges duplicate or overlapping entries
+- Removes outdated project context and resolved issues
+- Preserves user preferences and hard-won lessons
+- Creates a clean, readable structure
+
+A backup is saved to ~/MEMORY.md.bak before rewriting.
+
+Use this when MEMORY.md has grown messy or you want to tidy it up.`,
+  {},
+  async () => {
+    try {
+      const result = await curateOnly();
+
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Curation failed: ${result.error}`,
+            },
+          ],
+          is_error: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              "~/MEMORY.md has been curated and rewritten. " +
+              "Previous version backed up to ~/MEMORY.md.bak.",
+          },
+        ],
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text" as const, text: `Curation error: ${msg}` }],
+        is_error: true,
+      };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // MCP server
 // ---------------------------------------------------------------------------
 
 export const memoryServer = createSdkMcpServer({
   name: "memory",
   version: "1.0.0",
-  tools: [memorySearch, memorySync, memoryDream],
+  tools: [memorySearch, memorySync, memoryDream, memoryCurate],
 });

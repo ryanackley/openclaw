@@ -1,26 +1,20 @@
 /**
- * Dreaming — automated memory promotion.
+ * Dreaming — automated memory promotion and curation.
  *
- * Replicates OpenClaw's nightly dreaming system. Ranks short-term recall
- * entries using a weighted algorithm and promotes the top candidates
- * to ~/MEMORY.md.
+ * Two-phase operation:
  *
- * Weights (matching OpenClaw):
- *   frequency:     0.24  — log(recallCount) / log(10)
- *   relevance:     0.30  — average search score
- *   diversity:     0.15  — unique queries / 5
- *   recency:       0.15  — exponential decay (14-day half-life)
- *   consolidation: 0.10  — spaced recall across days
- *   conceptual:    0.06  — concept tag breadth
+ *   Phase 1 (rank): Score recall entries using a weighted algorithm.
+ *     Select candidates that pass quality thresholds.
  *
- * Candidates must pass:
- *   recallCount >= 3
- *   avgScore >= 0.75
- *   uniqueQueries >= 2
- *   not already promoted
+ *   Phase 2 (curate): Send current MEMORY.md + new candidates to an LLM
+ *     and ask it to produce a curated version — deduplicating, consolidating
+ *     related entries, removing stale content, and organizing by topic.
+ *
+ * The curation pass uses Claude via the Anthropic API directly (not the agent
+ * loop) — it's a focused, single-turn rewrite task.
  */
 
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -33,7 +27,12 @@ import {
 // ---------------------------------------------------------------------------
 
 const MEMORY_PATH = join(homedir(), "MEMORY.md");
-const RECALL_PATH = join(homedir(), "memory", ".dreams", "short-term-recall.json");
+const RECALL_STORE_PATH = join(
+  homedir(),
+  "memory",
+  ".dreams",
+  "short-term-recall.json",
+);
 
 const WEIGHTS = {
   frequency: 0.24,
@@ -62,48 +61,36 @@ function clamp01(v: number): number {
 }
 
 function scoreFrequency(entry: RecallEntry): number {
-  // log(recallCount) / log(10) — reaches 1.0 at 10 recalls
   return clamp01(Math.log(entry.recallCount) / Math.log(10));
 }
 
 function scoreRelevance(entry: RecallEntry): number {
-  // Average search score across all recalls
   const avg = entry.totalScore / entry.recallCount;
   return clamp01(avg);
 }
 
 function scoreDiversity(entry: RecallEntry): number {
-  // Unique queries that found this / 5
   return clamp01(entry.queryHashes.length / 5);
 }
 
 function scoreRecency(entry: RecallEntry): number {
-  // Exponential decay: e^(-lambda * daysSinceLastRecall)
   const lambda = Math.LN2 / HALF_LIFE_DAYS;
   const lastRecall = new Date(entry.lastRecalledAt).getTime();
-  const now = Date.now();
-  const daysSince = (now - lastRecall) / (1000 * 60 * 60 * 24);
+  const daysSince = (Date.now() - lastRecall) / (1000 * 60 * 60 * 24);
   return clamp01(Math.exp(-lambda * daysSince));
 }
 
 function scoreConsolidation(entry: RecallEntry): number {
-  // How spread out the recalls are across days
   const count = entry.recallDays.length;
   if (count <= 1) return 0.2;
-
-  // Spacing: log(count) / log(5) — how many distinct days
   const spacing = clamp01(Math.log(count) / Math.log(5));
-
-  // Span: days between first and last recall / 7
   const days = entry.recallDays.map((d) => new Date(d).getTime()).sort();
   const spanDays = (days[days.length - 1] - days[0]) / (1000 * 60 * 60 * 24);
   const span = clamp01(spanDays / 7);
-
   return 0.55 * spacing + 0.45 * span;
 }
 
 function scoreConceptual(entry: RecallEntry): number {
-  // Concept tag breadth / 6
   return clamp01(entry.conceptTags.length / 6);
 }
 
@@ -146,7 +133,7 @@ function rankEntry(entry: RecallEntry): RankedCandidate {
 }
 
 // ---------------------------------------------------------------------------
-// Filter + rank candidates
+// Phase 1: Filter + rank candidates
 // ---------------------------------------------------------------------------
 
 export function rankCandidates(
@@ -155,33 +142,127 @@ export function rankCandidates(
   const candidates: RankedCandidate[] = [];
 
   for (const entry of Object.values(entries)) {
-    // Skip already promoted
     if (entry.promotedAt) continue;
-
-    // Must meet minimum thresholds
     if (entry.recallCount < THRESHOLDS.minRecallCount) continue;
-
     const avgScore = entry.totalScore / entry.recallCount;
     if (avgScore < THRESHOLDS.minAvgScore) continue;
-
     if (entry.queryHashes.length < THRESHOLDS.minUniqueQueries) continue;
-
     candidates.push(rankEntry(entry));
   }
 
-  // Sort descending by composite score
   candidates.sort((a, b) => b.score - a.score);
-
   return candidates.slice(0, THRESHOLDS.maxPromotionsPerRun);
 }
 
 // ---------------------------------------------------------------------------
-// Apply promotions — append to MEMORY.md and mark entries
+// Phase 2: LLM curation — rewrite MEMORY.md with new entries integrated
+// ---------------------------------------------------------------------------
+
+const CURATION_PROMPT = `You are a memory curator. You maintain a long-term memory file (MEMORY.md) for a personal AI assistant.
+
+You will be given:
+1. The current contents of MEMORY.md
+2. New memory candidates that scored highly in the recall system
+
+Your job is to produce an updated MEMORY.md that:
+
+**Integrate new entries:**
+- Merge new candidates into the appropriate sections
+- Don't just append — weave them into existing structure
+
+**Deduplicate:**
+- If the same insight appears in different wordings, keep the best version
+- Combine related entries into single, richer entries
+
+**Remove stale content:**
+- Remove entries that are clearly outdated (old project context, resolved bugs, deprecated preferences)
+- Remove low-value entries (trivial facts, one-off context that won't matter again)
+
+**Consolidate:**
+- Group related memories under clear topic headings
+- Prefer fewer, denser entries over many sparse ones
+- A single well-written paragraph beats five bullet points saying the same thing
+
+**Organize:**
+- Structure by topic (About Me, Preferences, Lessons Learned, Project Context, Technical Notes, etc.)
+- NOT by date promoted — that's an implementation detail, not useful structure
+- Keep the most important/frequently-used info near the top
+
+**Preserve:**
+- User preferences and working style (these rarely go stale)
+- Hard-won lessons and debugging insights
+- Relationship context (what projects we work on, communication style)
+
+**Format:**
+- Clean markdown with ## headings for sections
+- Concise bullet points or short paragraphs
+- No metadata annotations (no [score=..., recalls=..., source=...])
+- No "Promoted From Short-Term Memory (date)" sections
+
+Return ONLY the new MEMORY.md content. No explanation, no preamble.`;
+
+async function curateMemory(
+  currentMemory: string,
+  candidates: RankedCandidate[],
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY not set — cannot run LLM curation");
+  }
+
+  const candidateText = candidates
+    .map(
+      (c) =>
+        `- ${c.entry.snippet} (recalled ${c.entry.recallCount} times, ` +
+        `avg score ${(c.entry.totalScore / c.entry.recallCount).toFixed(2)}, ` +
+        `from ${c.entry.path})`,
+    )
+    .join("\n");
+
+  const userMessage =
+    `## Current MEMORY.md\n\n${currentMemory || "(empty — this is a fresh start)"}\n\n` +
+    `## New Memory Candidates\n\n${candidateText}`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: CURATION_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Anthropic API error: ${response.status} ${err}`);
+  }
+
+  const data = (await response.json()) as {
+    content: Array<{ type: string; text: string }>;
+  };
+
+  const text = data.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
+  return text;
+}
+
+// ---------------------------------------------------------------------------
+// Full dream cycle: rank → curate → write
 // ---------------------------------------------------------------------------
 
 export interface DreamResult {
   promoted: number;
   candidates: number;
+  curated: boolean;
   entries: Array<{
     snippet: string;
     score: number;
@@ -195,64 +276,114 @@ export async function dream(): Promise<DreamResult> {
   const candidates = rankCandidates(store.entries);
 
   if (candidates.length === 0) {
-    return { promoted: 0, candidates: 0, entries: [] };
+    return { promoted: 0, candidates: 0, curated: false, entries: [] };
   }
 
-  // Build the promotion block
-  const date = new Date().toISOString().split("T")[0];
-  const lines: string[] = [
-    "",
-    `## Promoted From Short-Term Memory (${date})`,
-    "",
-  ];
+  // Read current MEMORY.md
+  let currentMemory = "";
+  try {
+    currentMemory = await readFile(MEMORY_PATH, "utf-8");
+  } catch {
+    // No MEMORY.md yet
+  }
 
-  const promotedEntries: DreamResult["entries"] = [];
+  // Build result metadata
+  const promotedEntries: DreamResult["entries"] = candidates.map((c) => ({
+    snippet: c.entry.snippet,
+    score: c.score,
+    recalls: c.entry.recallCount,
+    source: `${c.entry.path}:${c.entry.startLine}-${c.entry.endLine}`,
+  }));
 
-  for (const candidate of candidates) {
-    const { entry, score } = candidate;
-    const avgScore = (entry.totalScore / entry.recallCount).toFixed(3);
+  // Try LLM curation; fall back to raw append if no API key
+  let curated = false;
+  try {
+    const newMemory = await curateMemory(currentMemory, candidates);
 
-    lines.push(
-      `- ${entry.snippet} ` +
-        `[score=${score.toFixed(3)} recalls=${entry.recallCount} ` +
-        `avg=${avgScore} source=${entry.path}:${entry.startLine}-${entry.endLine}]`,
+    // Safety: backup before overwriting
+    if (currentMemory) {
+      const backupPath = MEMORY_PATH + ".bak";
+      await writeFile(backupPath, currentMemory, "utf-8");
+    }
+
+    await writeFile(MEMORY_PATH, newMemory, "utf-8");
+    curated = true;
+    console.log("[dreaming] MEMORY.md curated and rewritten by LLM");
+  } catch (err) {
+    // Fall back to raw append
+    console.warn(
+      "[dreaming] LLM curation failed, falling back to append:",
+      err instanceof Error ? err.message : err,
     );
-
-    promotedEntries.push({
-      snippet: entry.snippet,
-      score,
-      recalls: entry.recallCount,
-      source: `${entry.path}:${entry.startLine}-${entry.endLine}`,
-    });
-
-    // Mark as promoted in the store
-    entry.promotedAt = new Date().toISOString();
+    const date = new Date().toISOString().split("T")[0];
+    const lines = [
+      "",
+      `## Promoted From Short-Term Memory (${date})`,
+      "",
+      ...candidates.map((c) => `- ${c.entry.snippet}`),
+      "",
+    ];
+    const { appendFile } = await import("node:fs/promises");
+    await appendFile(MEMORY_PATH, lines.join("\n"), "utf-8");
   }
 
-  lines.push("");
+  // Mark candidates as promoted
+  const now = new Date().toISOString();
+  for (const candidate of candidates) {
+    candidate.entry.promotedAt = now;
+  }
 
-  // Append to MEMORY.md
-  await appendFile(MEMORY_PATH, lines.join("\n"), "utf-8");
-
-  // Save updated store (with promotedAt markers)
-  const { writeFile } = await import("node:fs/promises");
-  store.updatedAt = new Date().toISOString();
-  await writeFile(
-    join(homedir(), "memory", ".dreams", "short-term-recall.json"),
-    JSON.stringify(store, null, 2),
-    "utf-8",
-  );
+  // Save updated recall store
+  store.updatedAt = now;
+  await writeFile(RECALL_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
 
   console.log(
-    `[dreaming] Promoted ${candidates.length} memories to MEMORY.md`,
+    `[dreaming] Promoted ${candidates.length} memories to MEMORY.md` +
+      (curated ? " (curated)" : " (appended)"),
   );
 
   return {
     promoted: candidates.length,
     candidates: Object.values(store.entries).filter((e) => !e.promotedAt)
       .length,
+    curated,
     entries: promotedEntries,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Standalone curation — reorganize MEMORY.md without new promotions
+// ---------------------------------------------------------------------------
+
+export async function curateOnly(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  let currentMemory: string;
+  try {
+    currentMemory = await readFile(MEMORY_PATH, "utf-8");
+  } catch {
+    return { success: false, error: "~/MEMORY.md does not exist" };
+  }
+
+  if (!currentMemory.trim()) {
+    return { success: false, error: "~/MEMORY.md is empty" };
+  }
+
+  try {
+    // Curate with empty candidates — pure reorganization/cleanup
+    const newMemory = await curateMemory(currentMemory, []);
+
+    // Backup
+    await writeFile(MEMORY_PATH + ".bak", currentMemory, "utf-8");
+    await writeFile(MEMORY_PATH, newMemory, "utf-8");
+
+    console.log("[dreaming] MEMORY.md curated (reorganization only)");
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: msg };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,8 +406,9 @@ export function startDreamingTimer(
       const result = await dream();
       if (result.promoted > 0) {
         console.log(
-          `[dreaming] Promoted ${result.promoted} memories, ` +
-            `${result.candidates} candidates remaining`,
+          `[dreaming] Promoted ${result.promoted} memories` +
+            (result.curated ? " (curated)" : " (appended)") +
+            `, ${result.candidates} candidates remaining`,
         );
       }
     } catch (err) {
@@ -284,7 +416,6 @@ export function startDreamingTimer(
     }
   }, intervalMs);
 
-  // Don't keep the process alive just for dreaming
   dreamInterval.unref();
 }
 
