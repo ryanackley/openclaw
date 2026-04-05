@@ -62,8 +62,12 @@ Read it at the start of every session. Update it when you learn something import
 When the user says "remember this" or you encounter important context, write to today's file.
 
 ### Searching memory
-Use Grep to search ~/memory/ for relevant context when answering questions about past work.
-Always check memory before saying "I don't know" about something you might have discussed before.`;
+Use the **mcp__memory__search** tool for semantic search over all memory files.
+It uses Voyage AI embeddings to find relevant content even when exact keywords don't match.
+Fall back to Grep for exact-match searches or when the memory tool is unavailable.
+Always check memory before saying "I don't know" about something you might have discussed before.
+
+After writing new memory files, call **mcp__memory__sync** to re-index them.`;
 }
 
 function buildDateTime(): string {

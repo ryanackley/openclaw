@@ -30,6 +30,7 @@ import {
   markFlushed,
   ensureMemoryDir,
 } from "./memory-flush.js";
+import { memoryServer } from "./memory-tools.js";
 
 // ---------------------------------------------------------------------------
 // Safety hook — runs before every tool call
@@ -144,9 +145,13 @@ export async function sendMessage(
       "WebFetch",
       "Agent",
       "TodoWrite",
+      "mcp__memory__*",
     ],
     permissionMode: "bypassPermissions",
     maxTurns: 50,
+    mcpServers: {
+      memory: memoryServer,
+    },
     hooks: {
       PreToolUse: [
         {
