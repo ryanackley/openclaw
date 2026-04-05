@@ -12,12 +12,9 @@
  * then appends them to ~/memory/YYYY-MM-DD.md.
  */
 
-import { readFile, appendFile, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-
-const MEMORY_DIR = join(homedir(), "memory");
-const TRANSCRIPT_DIR = join(MEMORY_DIR, "transcripts");
+import { resolveBaseDir, resolveMemoryDir } from "./system-prompt.js";
 
 // ---------------------------------------------------------------------------
 // Read today's transcript
@@ -25,7 +22,7 @@ const TRANSCRIPT_DIR = join(MEMORY_DIR, "transcripts");
 
 async function readTodayTranscript(): Promise<string | null> {
   const date = new Date().toISOString().split("T")[0];
-  const path = join(TRANSCRIPT_DIR, `${date}.jsonl`);
+  const path = join(resolveMemoryDir(), "transcripts", `${date}.jsonl`);
 
   try {
     const raw = await readFile(path, "utf-8");
@@ -72,7 +69,7 @@ export function buildFlushPrompt(transcript: string): string {
   const date = new Date().toISOString().split("T")[0];
   return `You are performing a memory flush. Review this conversation transcript from today and extract the most important information to preserve.
 
-Write a concise summary to ~/memory/${date}.md. Focus on:
+Write a concise summary to ${resolveMemoryDir()}/${date}.md. Focus on:
 - Decisions made and their reasoning
 - New information learned about the user's preferences or workflow
 - Technical discoveries, bugs found, solutions that worked
@@ -122,7 +119,7 @@ export function markFlushed(): void {
 // ---------------------------------------------------------------------------
 
 export async function ensureMemoryDir(): Promise<void> {
-  await mkdir(MEMORY_DIR, { recursive: true });
+  await mkdir(resolveMemoryDir(), { recursive: true });
 }
 
 function truncate(s: string, max: number): string {

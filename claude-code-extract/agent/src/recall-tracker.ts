@@ -10,16 +10,21 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveMemoryDir } from "./system-prompt.js";
 import type { SearchResult } from "./vector-search.js";
 
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
-const DREAMS_DIR = join(homedir(), "memory", ".dreams");
-const RECALL_PATH = join(DREAMS_DIR, "short-term-recall.json");
+function dreamsDir(): string {
+  return join(resolveMemoryDir(), ".dreams");
+}
+
+function recallPath(): string {
+  return join(dreamsDir(), "short-term-recall.json");
+}
 
 // ---------------------------------------------------------------------------
 // Types — matches OpenClaw's ShortTermRecallEntry
@@ -61,12 +66,12 @@ interface RecallStore {
 // ---------------------------------------------------------------------------
 
 async function ensureDir(): Promise<void> {
-  await mkdir(DREAMS_DIR, { recursive: true });
+  await mkdir(dreamsDir(), { recursive: true });
 }
 
 export async function loadRecallStore(): Promise<RecallStore> {
   try {
-    const raw = await readFile(RECALL_PATH, "utf-8");
+    const raw = await readFile(recallPath(), "utf-8");
     return JSON.parse(raw);
   } catch {
     return {
@@ -80,7 +85,7 @@ export async function loadRecallStore(): Promise<RecallStore> {
 async function saveRecallStore(store: RecallStore): Promise<void> {
   await ensureDir();
   store.updatedAt = new Date().toISOString();
-  await writeFile(RECALL_PATH, JSON.stringify(store, null, 2), "utf-8");
+  await writeFile(recallPath(), JSON.stringify(store, null, 2), "utf-8");
 }
 
 // ---------------------------------------------------------------------------

@@ -10,15 +10,8 @@
  */
 
 import { readFile, writeFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, relative } from "node:path";
-
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-const MEMORY_DIR = join(homedir(), "memory");
-const EMBEDDINGS_PATH = join(MEMORY_DIR, ".embeddings.json");
+import { join } from "node:path";
+import { resolveBaseDir, resolveMemoryDir } from "./system-prompt.js";
 const VOYAGE_MODEL = "voyage-3";
 const CHUNK_SIZE = 400; // tokens (rough: 1 token ≈ 4 chars)
 const CHUNK_OVERLAP = 80;
@@ -250,9 +243,13 @@ function cosineSimilarity(a: number[], b: number[]): number {
 // Store management
 // ---------------------------------------------------------------------------
 
+function embeddingsPath(): string {
+  return join(resolveMemoryDir(), ".embeddings.json");
+}
+
 async function loadStore(): Promise<EmbeddingsStore> {
   try {
-    const raw = await readFile(EMBEDDINGS_PATH, "utf-8");
+    const raw = await readFile(embeddingsPath(), "utf-8");
     return JSON.parse(raw);
   } catch {
     return {
@@ -266,7 +263,7 @@ async function loadStore(): Promise<EmbeddingsStore> {
 
 async function saveStore(store: EmbeddingsStore): Promise<void> {
   store.updatedAt = new Date().toISOString();
-  await writeFile(EMBEDDINGS_PATH, JSON.stringify(store), "utf-8");
+  await writeFile(embeddingsPath(), JSON.stringify(store), "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -278,14 +275,16 @@ export async function syncEmbeddings(): Promise<{
   unchanged: number;
   removed: number;
 }> {
+  const baseDir = resolveBaseDir();
+  const memDir = resolveMemoryDir();
   const store = await loadStore();
 
-  // Scan all .md files in memory dir + ~/MEMORY.md
+  // Scan all .md files in memory dir + MEMORY.md
   const memoryFiles: Array<{ path: string; content: string }> = [];
 
-  // ~/MEMORY.md
+  // <baseDir>/MEMORY.md
   try {
-    const content = await readFile(join(homedir(), "MEMORY.md"), "utf-8");
+    const content = await readFile(join(baseDir, "MEMORY.md"), "utf-8");
     if (content.trim()) {
       memoryFiles.push({ path: "MEMORY.md", content });
     }
@@ -293,16 +292,16 @@ export async function syncEmbeddings(): Promise<{
     // No MEMORY.md yet
   }
 
-  // ~/memory/*.md (not transcripts, not .embeddings)
+  // <baseDir>/memory/*.md (not transcripts, not dotfiles)
   try {
-    const entries = await readdir(MEMORY_DIR);
+    const entries = await readdir(memDir);
     for (const entry of entries) {
       if (
         entry.endsWith(".md") &&
         !entry.startsWith(".") &&
         entry !== "transcripts"
       ) {
-        const fullPath = join(MEMORY_DIR, entry);
+        const fullPath = join(memDir, entry);
         const content = await readFile(fullPath, "utf-8");
         if (content.trim()) {
           memoryFiles.push({ path: `memory/${entry}`, content });

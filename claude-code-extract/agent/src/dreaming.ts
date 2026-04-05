@@ -14,25 +14,25 @@
  * loop) — it's a focused, single-turn rewrite task.
  */
 
-import { readFile, writeFile, rename } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveBaseDir, resolveMemoryDir } from "./system-prompt.js";
 import {
   loadRecallStore,
   type RecallEntry,
 } from "./recall-tracker.js";
 
 // ---------------------------------------------------------------------------
-// Config
+// Config — paths derived from OPENCLAW_DIR
 // ---------------------------------------------------------------------------
 
-const MEMORY_PATH = join(homedir(), "MEMORY.md");
-const RECALL_STORE_PATH = join(
-  homedir(),
-  "memory",
-  ".dreams",
-  "short-term-recall.json",
-);
+function memoryPath(): string {
+  return join(resolveBaseDir(), "MEMORY.md");
+}
+
+function recallStorePath(): string {
+  return join(resolveMemoryDir(), ".dreams", "short-term-recall.json");
+}
 
 const WEIGHTS = {
   frequency: 0.24,
@@ -282,7 +282,7 @@ export async function dream(): Promise<DreamResult> {
   // Read current MEMORY.md
   let currentMemory = "";
   try {
-    currentMemory = await readFile(MEMORY_PATH, "utf-8");
+    currentMemory = await readFile(memoryPath(), "utf-8");
   } catch {
     // No MEMORY.md yet
   }
@@ -302,11 +302,11 @@ export async function dream(): Promise<DreamResult> {
 
     // Safety: backup before overwriting
     if (currentMemory) {
-      const backupPath = MEMORY_PATH + ".bak";
+      const backupPath = memoryPath() + ".bak";
       await writeFile(backupPath, currentMemory, "utf-8");
     }
 
-    await writeFile(MEMORY_PATH, newMemory, "utf-8");
+    await writeFile(memoryPath(), newMemory, "utf-8");
     curated = true;
     console.log("[dreaming] MEMORY.md curated and rewritten by LLM");
   } catch (err) {
@@ -324,7 +324,7 @@ export async function dream(): Promise<DreamResult> {
       "",
     ];
     const { appendFile } = await import("node:fs/promises");
-    await appendFile(MEMORY_PATH, lines.join("\n"), "utf-8");
+    await appendFile(memoryPath(), lines.join("\n"), "utf-8");
   }
 
   // Mark candidates as promoted
@@ -335,7 +335,7 @@ export async function dream(): Promise<DreamResult> {
 
   // Save updated recall store
   store.updatedAt = now;
-  await writeFile(RECALL_STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
+  await writeFile(recallStorePath(), JSON.stringify(store, null, 2), "utf-8");
 
   console.log(
     `[dreaming] Promoted ${candidates.length} memories to MEMORY.md` +
@@ -361,7 +361,7 @@ export async function curateOnly(): Promise<{
 }> {
   let currentMemory: string;
   try {
-    currentMemory = await readFile(MEMORY_PATH, "utf-8");
+    currentMemory = await readFile(memoryPath(), "utf-8");
   } catch {
     return { success: false, error: "~/MEMORY.md does not exist" };
   }
@@ -375,8 +375,8 @@ export async function curateOnly(): Promise<{
     const newMemory = await curateMemory(currentMemory, []);
 
     // Backup
-    await writeFile(MEMORY_PATH + ".bak", currentMemory, "utf-8");
-    await writeFile(MEMORY_PATH, newMemory, "utf-8");
+    await writeFile(memoryPath() + ".bak", currentMemory, "utf-8");
+    await writeFile(memoryPath(), newMemory, "utf-8");
 
     console.log("[dreaming] MEMORY.md curated (reorganization only)");
     return { success: true };

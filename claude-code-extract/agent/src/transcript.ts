@@ -1,18 +1,13 @@
 /**
  * Session transcript logger — appends every message to a daily JSONL file.
  *
- * Modeled after OpenClaw's session persistence:
- *   ~/.openclaw/sessions/{agentId}/{sessionId}.jsonl
- *
- * We simplify to a daily log file since we have one agent:
- *   ~/memory/transcripts/YYYY-MM-DD.jsonl
+ * Storage: <OPENCLAW_DIR>/memory/transcripts/YYYY-MM-DD.jsonl
  */
 
 import { appendFile, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolveMemoryDir } from "./system-prompt.js";
 
-const TRANSCRIPT_DIR = join(homedir(), "memory", "transcripts");
+const transcriptDir = () => `${resolveMemoryDir()}/transcripts`;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,7 +28,7 @@ let dirReady = false;
 
 async function ensureDir(): Promise<void> {
   if (dirReady) return;
-  await mkdir(TRANSCRIPT_DIR, { recursive: true });
+  await mkdir(transcriptDir(), { recursive: true });
   dirReady = true;
 }
 
@@ -43,7 +38,7 @@ async function ensureDir(): Promise<void> {
 
 function todayPath(): string {
   const date = new Date().toISOString().split("T")[0];
-  return join(TRANSCRIPT_DIR, `${date}.jsonl`);
+  return `${transcriptDir()}/${date}.jsonl`;
 }
 
 // ---------------------------------------------------------------------------
