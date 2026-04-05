@@ -387,21 +387,38 @@ export async function curateOnly(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
-// Dreaming timer — runs on an interval (default: every 6 hours)
+// Dreaming scheduler — targets a specific hour (default: 3 AM local time)
 // ---------------------------------------------------------------------------
 
-let dreamInterval: ReturnType<typeof setInterval> | null = null;
+let dreamTimeout: ReturnType<typeof setTimeout> | null = null;
 
-export function startDreamingTimer(
-  intervalMs: number = 6 * 60 * 60 * 1000,
-): void {
-  if (dreamInterval) return;
+/** Calculate ms until the next occurrence of `hour:00` in local time */
+function msUntilNextHour(hour: number): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, 0, 0, 0);
 
+  // If that time already passed today, schedule for tomorrow
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+
+  return next.getTime() - now.getTime();
+}
+
+function formatMs(ms: number): string {
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  return `${hours}h ${minutes}m`;
+}
+
+function scheduleDream(hour: number): void {
+  const ms = msUntilNextHour(hour);
   console.log(
-    `[dreaming] Started dreaming timer (every ${(intervalMs / 3600000).toFixed(1)}h)`,
+    `[dreaming] Next dream scheduled for ${hour}:00 (in ${formatMs(ms)})`,
   );
 
-  dreamInterval = setInterval(async () => {
+  dreamTimeout = setTimeout(async () => {
     try {
       const result = await dream();
       if (result.promoted > 0) {
@@ -410,18 +427,30 @@ export function startDreamingTimer(
             (result.curated ? " (curated)" : " (appended)") +
             `, ${result.candidates} candidates remaining`,
         );
+      } else {
+        console.log("[dreaming] No candidates ready for promotion");
       }
     } catch (err) {
       console.error("[dreaming] Error:", err);
     }
-  }, intervalMs);
 
-  dreamInterval.unref();
+    // Schedule the next one (tomorrow at the same hour)
+    scheduleDream(hour);
+  }, ms);
+
+  dreamTimeout.unref();
 }
 
-export function stopDreamingTimer(): void {
-  if (dreamInterval) {
-    clearInterval(dreamInterval);
-    dreamInterval = null;
+export function startDreamingSchedule(hour: number = 3): void {
+  if (dreamTimeout) return;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  console.log(`[dreaming] Dreaming scheduled daily at ${hour}:00 (${tz})`);
+  scheduleDream(hour);
+}
+
+export function stopDreamingSchedule(): void {
+  if (dreamTimeout) {
+    clearTimeout(dreamTimeout);
+    dreamTimeout = null;
   }
 }
