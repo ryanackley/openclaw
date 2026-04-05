@@ -67,7 +67,13 @@ It uses Voyage AI embeddings to find relevant content even when exact keywords d
 Fall back to Grep for exact-match searches or when the memory tool is unavailable.
 Always check memory before saying "I don't know" about something you might have discussed before.
 
-After writing new memory files, call **mcp__memory__sync** to re-index them.`;
+After writing new memory files, call **mcp__memory__sync** to re-index them.
+
+### Dreaming (automatic promotion)
+Every memory search is tracked. When a memory chunk is recalled 3+ times with
+high scores from multiple unique queries, the dreaming system automatically
+promotes it to ~/MEMORY.md. This runs every 6 hours in the background.
+You can trigger it manually with **mcp__memory__dream**.`;
 }
 
 function buildDateTime(): string {

@@ -2,14 +2,16 @@
  * Memory MCP tools — custom tools for the agent to search and manage memory.
  *
  * Registered as an in-process MCP server so the agent can call them like
- * any other tool: mcp__memory__search, mcp__memory__sync
+ * any other tool: mcp__memory__search, mcp__memory__sync, mcp__memory__dream
  */
 
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { searchMemory, syncEmbeddings } from "./vector-search.js";
+import { recordRecalls } from "./recall-tracker.js";
+import { dream } from "./dreaming.js";
 
 // ---------------------------------------------------------------------------
-// memory_search — semantic search over all memory files
+// memory_search — semantic search with recall tracking
 // ---------------------------------------------------------------------------
 
 const memorySearch = tool(
@@ -17,7 +19,9 @@ const memorySearch = tool(
   `Search memory files semantically using Voyage AI embeddings.
 Searches ~/MEMORY.md and ~/memory/*.md for content relevant to the query.
 Returns ranked results with file path, line numbers, snippet, and relevance score.
-Use this when the user asks about past conversations, decisions, or context.`,
+Use this when the user asks about past conversations, decisions, or context.
+Every search result is tracked for the dreaming system — frequently recalled
+memories get automatically promoted to MEMORY.md.`,
   {
     query: {
       type: "string",
@@ -39,6 +43,9 @@ Use this when the user asks about past conversations, decisions, or context.`,
         args.max_results ?? 6,
         args.min_score ?? 0.3,
       );
+
+      // Track every hit for the dreaming system
+      await recordRecalls(args.query, results);
 
       if (results.length === 0) {
         return {
@@ -79,7 +86,7 @@ Use this when the user asks about past conversations, decisions, or context.`,
 );
 
 // ---------------------------------------------------------------------------
-// memory_sync — re-index memory files (embed new/changed content)
+// memory_sync — re-index memory files
 // ---------------------------------------------------------------------------
 
 const memorySync = tool(
@@ -112,11 +119,80 @@ Run this after writing new memory files to make them searchable.`,
 );
 
 // ---------------------------------------------------------------------------
+// memory_dream — run the dreaming promotion algorithm
+// ---------------------------------------------------------------------------
+
+const memoryDream = tool(
+  "dream",
+  `Run the dreaming promotion algorithm. Analyzes short-term recall data
+(which memories have been searched for and found useful) and promotes the
+most valuable entries to ~/MEMORY.md.
+
+Ranking uses a weighted algorithm:
+  - Relevance (0.30): average search score
+  - Frequency (0.24): how often recalled
+  - Diversity (0.15): unique queries that found it
+  - Recency (0.15): exponential decay, 14-day half-life
+  - Consolidation (0.10): spaced recall across different days
+  - Conceptual (0.06): breadth of concept tags
+
+Candidates must have been recalled 3+ times, with avg score >= 0.75,
+from 2+ unique queries, and not already promoted.
+
+This runs automatically every 6 hours, but you can trigger it manually.`,
+  {},
+  async () => {
+    try {
+      const result = await dream();
+
+      if (result.promoted === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                "No memories ready for promotion. " +
+                "Candidates need 3+ recalls with avg score >= 0.75 from 2+ unique queries. " +
+                `${result.candidates} unpromoted entries in the recall store.`,
+            },
+          ],
+        };
+      }
+
+      const promoted = result.entries
+        .map(
+          (e) =>
+            `- ${e.snippet.slice(0, 100)}... ` +
+            `(score: ${e.score.toFixed(3)}, recalls: ${e.recalls}, source: ${e.source})`,
+        )
+        .join("\n");
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `Promoted ${result.promoted} memories to ~/MEMORY.md:\n\n${promoted}\n\n` +
+              `${result.candidates} unpromoted entries remain in the recall store.`,
+          },
+        ],
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text" as const, text: `Dreaming error: ${msg}` }],
+        is_error: true,
+      };
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // MCP server
 // ---------------------------------------------------------------------------
 
 export const memoryServer = createSdkMcpServer({
   name: "memory",
   version: "1.0.0",
-  tools: [memorySearch, memorySync],
+  tools: [memorySearch, memorySync, memoryDream],
 });

@@ -11,6 +11,7 @@ import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { sendMessage, initSession, flushOnShutdown } from "./agent.js";
+import { startDreamingTimer, stopDreamingTimer } from "./dreaming.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(__dirname, "..", "public");
@@ -135,10 +136,18 @@ wss.on("connection", (ws) => {
 export async function startServer(port: number = 3000): Promise<void> {
   await initSession();
 
-  // Graceful shutdown — flush memories before exit
+  // Start dreaming timer (default: every 6 hours)
+  const dreamIntervalMs = parseInt(
+    process.env.DREAM_INTERVAL_HOURS ?? "6",
+    10,
+  ) * 3600000;
+  startDreamingTimer(dreamIntervalMs);
+
+  // Graceful shutdown — flush memories and stop dreaming
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, async () => {
       console.log(`\n[server] ${signal} received, flushing memories...`);
+      stopDreamingTimer();
       await flushOnShutdown();
       process.exit(0);
     });
@@ -146,5 +155,6 @@ export async function startServer(port: number = 3000): Promise<void> {
 
   httpServer.listen(port, () => {
     console.log(`\n  OpenClaw Agent running at http://localhost:${port}\n`);
+    console.log(`  Dreaming every ${dreamIntervalMs / 3600000}h (set DREAM_INTERVAL_HOURS to change)\n`);
   });
 }
