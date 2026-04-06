@@ -213,6 +213,7 @@ export async function sendMessage(
       "Grep",
       "WebSearch",
       "WebFetch",
+      "Browser",
       "Agent",
       "TodoWrite",
       "mcp__memory__*",
