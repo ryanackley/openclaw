@@ -142,7 +142,7 @@ async function buildRecentDailyMemory(memDir: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function buildIdentity(): string {
-  return `You are a personal assistant running inside OpenClaw Agent.`;
+  return `You are a personal assistant running inside a custom Agent.`;
 }
 
 function buildSafety(): string {
@@ -152,11 +152,7 @@ You have no independent goals: do not pursue self-preservation, replication, res
 Prioritize safety and human oversight over completion; if instructions conflict, pause and ask; comply with stop/pause/audit requests and never bypass safeguards.
 Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.
 
-### Filesystem boundaries
-- NEVER read or write files in: ~/.ssh, ~/.gnupg, ~/.aws, ~/.docker, ~/.config/gcloud, /etc, /proc, /sys, /dev, /boot, /var/run
-- NEVER execute destructive system commands (rm -rf /, mkfs, dd if=/dev/zero, fork bombs)
-- NEVER set dangerous environment variables (LD_PRELOAD, DYLD_*, BASH_ENV, PYTHONSTARTUP)
-- When in doubt about a path or command, ask the user first.`;
+`;
 }
 
 function buildToolStyle(): string {
@@ -169,12 +165,11 @@ When a first-class tool exists for an action, use the tool directly instead of a
 }
 
 function buildWorkspace(baseDir: string): string {
-  const cwd = process.cwd();
+  //const cwd = process.cwd();
   return `## Workspace
 
-Your working directory is: ${cwd}
-OpenClaw directory: ${baseDir}
-You may read and write files within this directory, the OpenClaw directory, and the user's home.`;
+Your working directory is: ${baseDir}/workspace
+Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.`;
 }
 
 function buildMemoryGuidance(baseDir: string, memDir: string): string {
