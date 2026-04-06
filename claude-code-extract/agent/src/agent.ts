@@ -33,8 +33,78 @@ import {
 import { memoryServer } from "./memory-tools.js";
 
 // ---------------------------------------------------------------------------
-// Safety hook — runs before every tool call
+// SDK message types — matches the actual shapes from @anthropic-ai/claude-agent-sdk
+//
+// AssistantMessage: { type: "assistant", message: BetaMessage, ... }
+//   BetaMessage.content: Array<TextBlock | ToolUseBlock>
+//
+// UserMessage: { type: "user", message: MessageParam, ... }
+//   MessageParam.content: Array<ToolResultBlock | TextBlock>
+//
+// SystemMessage: { type: "system", subtype: "init" | "compact_boundary" | "status", ... }
+//
+// ResultMessage: { type: "result", subtype: "success" | "error_*", session_id, ... }
 // ---------------------------------------------------------------------------
+
+interface ContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  tool_use_id?: string;
+  content?: unknown;
+}
+
+interface SDKAssistantMessage {
+  type: "assistant";
+  uuid: string;
+  session_id: string;
+  message: {
+    content: ContentBlock[];
+    stop_reason?: string | null;
+  };
+}
+
+interface SDKUserMessage {
+  type: "user";
+  uuid?: string;
+  session_id: string;
+  message: {
+    content: ContentBlock[] | string;
+  };
+}
+
+interface SDKSystemMessage {
+  type: "system";
+  subtype: "init" | "compact_boundary" | "status" | "local_command_output";
+  uuid: string;
+  session_id: string;
+}
+
+interface SDKResultMessage {
+  type: "result";
+  subtype:
+    | "success"
+    | "error_max_turns"
+    | "error_during_execution"
+    | "error_max_budget_usd"
+    | "error_max_structured_output_retries";
+  uuid: string;
+  session_id: string;
+  is_error: boolean;
+  result?: string;
+  errors?: string[];
+  total_cost_usd: number;
+  num_turns: number;
+}
+
+type SDKMessage =
+  | SDKAssistantMessage
+  | SDKUserMessage
+  | SDKSystemMessage
+  | SDKResultMessage
+  | { type: string; [key: string]: unknown }; // catch-all for other event types
 
 const safetyGuardrail: HookCallback = async (input) => {
   const preInput = input as PreToolUseHookInput;
@@ -171,35 +241,53 @@ export async function sendMessage(
       prompt: userMessage,
       options,
     })) {
-      switch (message.type) {
+      const msg = message as SDKMessage;
+
+      switch (msg.type) {
         case "assistant": {
-          const text = extractText(message);
-          if (text) {
-            fullText += text;
-            callbacks.onText(text);
+          const assistantMsg = msg as SDKAssistantMessage;
+          const content = assistantMsg.message?.content ?? [];
+
+          // Extract text blocks
+          for (const block of content) {
+            if (block.type === "text" && block.text) {
+              fullText += block.text;
+              callbacks.onText(block.text);
+            }
           }
 
-          const toolCalls = extractToolCalls(message);
-          for (const tc of toolCalls) {
-            callbacks.onToolUse(tc.name, tc.id);
-            await logToolUse(tc.name, tc.id);
+          // Extract tool use blocks
+          for (const block of content) {
+            if (block.type === "tool_use" && block.name && block.id) {
+              callbacks.onToolUse(block.name, block.id);
+              await logToolUse(block.name, block.id, block.input);
+            }
           }
           break;
         }
 
         case "user": {
-          const results = extractToolResults(message);
-          for (const r of results) {
-            callbacks.onToolResult(r.id, r.summary);
-            await logToolResult(r.id, r.summary);
+          // Tool results come back as user messages
+          const userMsg = msg as SDKUserMessage;
+          const content = userMsg.message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === "tool_result" && block.tool_use_id) {
+                const summary = truncate(
+                  JSON.stringify(block.content ?? ""),
+                  200,
+                );
+                callbacks.onToolResult(block.tool_use_id, summary);
+                await logToolResult(block.tool_use_id, summary);
+              }
+            }
           }
           break;
         }
 
         case "system": {
-          // Detect compaction boundary
-          const subtype = (message as Record<string, unknown>).subtype;
-          if (subtype === "compact_boundary") {
+          const sysMsg = msg as SDKSystemMessage;
+          if (sysMsg.subtype === "compact_boundary") {
             callbacks.onCompaction();
             await logSystemEvent("Context compacted");
           }
@@ -207,17 +295,24 @@ export async function sendMessage(
         }
 
         case "result": {
-          if (message.session_id) {
-            sessionState!.sessionId = message.session_id;
+          const resultMsg = msg as SDKResultMessage;
+
+          // Always capture session_id for resumption
+          if (resultMsg.session_id) {
+            sessionState!.sessionId = resultMsg.session_id;
           }
-          if (message.subtype === "error") {
-            callbacks.onError(
-              ((message as Record<string, unknown>).error_message as string) ??
-                "Agent error",
-            );
+
+          // Handle errors
+          if (resultMsg.is_error) {
+            const errorText =
+              resultMsg.errors?.join("; ") ??
+              `Agent stopped: ${resultMsg.subtype}`;
+            callbacks.onError(errorText);
           }
           break;
         }
+
+        // Ignore other message types (stream_event, status, etc.)
       }
     }
 
@@ -228,8 +323,8 @@ export async function sendMessage(
 
     callbacks.onComplete(fullText);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    callbacks.onError(msg);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    callbacks.onError(errMsg);
   }
 }
 
@@ -252,43 +347,8 @@ export async function flushOnShutdown(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Message extraction helpers
+// Helpers
 // ---------------------------------------------------------------------------
-
-function extractText(message: Record<string, unknown>): string {
-  if (typeof message.text === "string") return message.text;
-  if (Array.isArray(message.content)) {
-    return message.content
-      .filter((b: Record<string, unknown>) => b.type === "text")
-      .map((b: Record<string, unknown>) => b.text as string)
-      .join("");
-  }
-  return "";
-}
-
-function extractToolCalls(
-  message: Record<string, unknown>,
-): Array<{ name: string; id: string }> {
-  if (!Array.isArray(message.content)) return [];
-  return message.content
-    .filter((b: Record<string, unknown>) => b.type === "tool_use")
-    .map((b: Record<string, unknown>) => ({
-      name: (b.name as string) ?? "unknown",
-      id: (b.id as string) ?? "",
-    }));
-}
-
-function extractToolResults(
-  message: Record<string, unknown>,
-): Array<{ id: string; summary: string }> {
-  if (!Array.isArray(message.content)) return [];
-  return message.content
-    .filter((b: Record<string, unknown>) => b.type === "tool_result")
-    .map((b: Record<string, unknown>) => ({
-      id: (b.tool_use_id as string) ?? "",
-      summary: truncate(JSON.stringify(b.content ?? ""), 200),
-    }));
-}
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
